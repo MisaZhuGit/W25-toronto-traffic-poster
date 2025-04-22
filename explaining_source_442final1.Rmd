@@ -1,0 +1,260 @@
+---
+title: "442finalproject"
+author: "FisaZhu(20991683)"
+output:
+  html_document:
+    self_contained: true
+    df_print: paged
+  always_allow_html: true
+  pdf_document: null
+---
+
+# about data cleaning:
+
+1. chunk1:how i get the csv file from opendatatoronto
+
+2. chunk2:i import the csv file and analysis the variable
+
+
+![](datanalysis.png)
+
+
+
+
+3.chunk6,8: since data of volumn and speed is highly skewed, i change the band of color.
+
+
+
+
+4. chunk12(op5): i changed the color of font to make it more obvious in table and easy to see whether the current number is above or below the mean.
+
+
+
+```{r}
+# get dataset from package
+# traffic_packages
+# pkg_id <- "traffic-volumes-midblock-vehicle-speed-volume-and-classification-counts"
+# resources <- list_package_resources(pkg_id)
+# resources$name
+# 
+# traffic_data <- get_resource(resources[3, ])
+# head(traffic_data)
+```
+
+# visualize code: 
+
+```{r}
+library(opendatatoronto)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(kableExtra)
+```
+
+
+
+```{r}
+
+#data import, data cleaning 
+dat <- read.csv("traffic_summary_data.csv")
+datop <- dat%>%dplyr::select(-X_id,-latest_count_id,-latest_count_date_start,
+                      -latest_count_date_end,-latest_count_duration,
+                      -avg_weekend_daily_vol,-avg_85th_percentile_speed,
+                      -avg_95th_percentile_speed,-avg_heavy_pct,
+                      -avg_wkdy_am_peak_start,-avg_wkdy_am_peak_vol,
+                      -avg_wkdy_pm_peak_start,-avg_wkdy_pm_peak_vol) %>%
+  mutate(area = paste0(round(latitude, 1), ", ", round(longitude, 1)))
+
+
+
+```
+
+```{r}
+dens <- with(datop, MASS::kde2d(latitude, longitude, n = 200))
+
+max_density <- which(dens$z == max(dens$z), arr.ind = TRUE)
+max_lat <- dens$x[max_density[1]]
+max_lon <- dens$y[max_density[2]]
+
+label_text <- sprintf("Max Density:\nlat: %.4f\nlon: %.4f", max_lon, max_lat)
+
+p<- ggplot(datop, aes(x = longitude, y = latitude)) +
+  geom_density2d_filled(contour_var = "density",show.legend = FALSE) +
+  geom_point(aes(x = max_lon, y = max_lat), color = "red", size = 1) +
+  geom_text(aes(x = max_lon, y = max_lat, 
+                label = label_text), 
+            vjust = -1, color = "white")+
+  theme_minimal()
+
+p
+```
+
+```{r}
+summary(datop$avg_speed)
+quantile(datop$avg_speed, probs = seq(0.5, 1, 0.1),na.rm = TRUE)
+
+```
+
+```{r}
+datop$speed_band <- cut(
+  datop$avg_speed,
+  breaks = c(0, 20, 30, 40, 50, 60, Inf),
+  labels = c("0–20", "20–30", "30–40", "40–50", "50–60", "60+")
+)
+
+q<-ggplot(datop, aes(x = longitude, y = latitude, color = speed_band)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_brewer(palette = "YlGn", name = "Daily Speed Bin") +
+  theme_minimal()
+
+q
+```
+
+```{r}
+summary(datop$avg_daily_vol)
+quantile(datop$avg_daily_vol, probs = seq(0.5, 1, 0.1))
+
+```
+
+```{r}
+datop$vol_band <- cut(
+  datop$avg_daily_vol,
+  breaks = c(0, 2500, 5000, 10000, 20000, 50000, Inf),
+  labels = c("0–2.5k", "2.5k–5k", "5k–10k", "10k–20k", "20k–50k", "50k+")
+)
+
+r<-ggplot(datop, aes(x = longitude, y = latitude, color = vol_band)) +
+  geom_point(alpha = 0.7, size = 1) +
+  scale_color_brewer(palette = "YlGn", name = "Daily Volume Bin") +
+  theme_minimal()
+r
+```
+
+OP2
+
+```{r}
+myspeed_pal <- colorNumeric(
+  palette = "YlGn",        
+  domain = c(10, 60),        
+  na.color = "transparent"    
+)
+
+```
+
+```{r}
+
+stations <- data.frame(
+  name = c("Union Station", "Bloor Station", "Weston Station","Malton GO Station", "Kipling Station", "Lawrence West Station", "Yorkdale Bus Terminal", "Highway 407 Bus Terminal","Main Street", "Danforth GO", "Victoria Park"),
+  lat = c(43.6456, 43.6564, 43.7013,43.7086, 43.6361, 43.7148, 43.7244, 43.7900,43.6887, 43.6800, 43.6917),
+  lon = c(-79.3807, -79.4590, -79.5180,-79.6341, -79.5350, -79.4445, -79.4522, -79.5390,-79.3015, -79.3252, -79.2872)
+)
+
+leaflet(datop) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    lng = ~longitude, lat = ~latitude,
+    color = ~myspeed_pal(avg_speed),
+    radius = 2,
+    opacity = 0.7,
+    label = ~paste("Speed:", avg_speed, "km/h")
+  ) %>%
+  addMarkers(data=stations,lng = ~lon, lat = ~lat,
+    label = ~name,
+    popup = ~name)%>%
+  addLabelOnlyMarkers(data=stations,lng = ~lon, lat = ~lat,
+    label = ~name,
+    labelOptions = labelOptions(noHide = TRUE,
+                                direction = "top",
+                                textOnly = TRUE,
+                                style = list(
+                                  "color" = "black",
+                                  "font-size" = "13px",
+                                  "background" = "transparent",
+                                  "text-shadow" = "0 0 3px white",
+                                  "border" = "none"))) %>%
+  addLegend(
+    position = "bottomright",
+    pal = myspeed_pal,
+    values = ~avg_speed,
+    title = "Avg Speed (km/h)"
+  )%>%
+  setView(lng=-79.4,lat=43.7,zoom=10.4)
+```
+
+OP4
+
+```{r}
+img_width <- 1252
+img_height <- 743
+
+outline <- matrix(c(
+  135, 276,
+  301, 716,
+  409, 686,
+  531, 625,
+  568, 512,
+  701, 478,
+  773, 472,
+  1054, 171,
+  969, 1,
+  135, 276  
+), byrow = TRUE, ncol = 2)
+
+landmarkers <- data.frame(
+  name = c(
+    "highway 407 bus terminal", "weston station", "kipling station", "Pearson Airport",
+    "Bloor station", "Union station", "Yorkdale bus terminal", "Lawrence west station",
+    "Danforth Go", "Victoria Park"),
+  x = c(275, 311, 301, 551, 435, 568, 444, 465, 701, 773),
+  y = c(177, 491, 716, 625, 351, 562, 344, 376, 478, 472)
+)
+
+plot(outline, type = "n",
+     xlim = c(0, img_width),
+     ylim = c(img_height, 0),  
+     xlab = "", ylab = "", asp = 1,
+     axes = FALSE,             
+     frame.plot = FALSE )
+
+lines(outline, col = "forestgreen", lwd = 2)
+
+points(landmarkers$x, landmarkers$y, col = "red", pch = 16)
+
+
+text(landmarkers$x, landmarkers$y, labels = landmarkers$name,
+     pos = c(3, 1, 1, 1, 2, 1, 3, 1, 1, 4),  
+     cex = 0.8, col = "darkred")
+
+```
+
+OP5
+```{r}
+datop5 <- datop %>%
+  group_by(area) %>%
+  summarise(
+    n_points = n(),
+    avg_vol = mean(avg_daily_vol, na.rm = TRUE),
+    avg_speed = mean(avg_speed, na.rm = TRUE)
+  ) %>%
+  arrange(desc(avg_vol)) %>%
+  slice(1:15)
+
+colvol <- ifelse(datop5$avg_vol > median(datop5$avg_vol, na.rm = TRUE), "black", "white")
+colspeed <- ifelse(datop5$avg_speed > median(datop5$avg_speed, na.rm = TRUE),  "black", "white")
+
+
+kble <- datop5 %>%
+  kbl(
+    digits = 1,
+    col.names = c("Geo Coordinate", "Records", "Avg Daily Volume", "Avg Speed")
+  ) %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  column_spec(3, background = spec_color(datop5$avg_vol), color = colvol) %>%
+  column_spec(4, background = spec_color(datop5$avg_speed), color = colspeed) %>%
+  row_spec(0, bold = TRUE, background = "#f2f2f2")
+
+kble
+```
+
+
